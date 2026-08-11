@@ -1,0 +1,37 @@
+#!/bin/sh
+# SysV init script for the self-contained Samba 4 on RAIDiator 4.1 (SysV, not
+# systemd). Install to /etc/init.d and symlink into the runlevel, OR just run
+# it by hand. Placeholders are substituted at package time.
+PREFIX="@PREFIX@"
+SMBD="$PREFIX/sbin/smbd"
+NMBD="$PREFIX/sbin/nmbd"
+CONF="$PREFIX/etc/smb.conf"
+PIDDIR="$PREFIX/var/run"
+
+mkdir -p "$PIDDIR" "$PREFIX/var" "$PREFIX/private"
+
+start() {
+  echo "Starting Samba4 (SMB2/SMB3) …"
+  # -D = daemonize. Point Samba at our private config + state dirs.
+  "$NMBD" -D -s "$CONF"
+  "$SMBD" -D -s "$CONF"
+  echo "  smbd/nmbd started. Check: $PREFIX/bin/smbstatus"
+}
+
+stop() {
+  echo "Stopping Samba4 …"
+  for p in smbd nmbd; do
+    # only kill OUR processes (matched by the /opt/samba path)
+    for pid in $(ps | grep "$PREFIX/sbin/$p" | grep -v grep | awk '{print $1}'); do
+      kill "$pid" 2>/dev/null
+    done
+  done
+}
+
+case "$1" in
+  start)   start ;;
+  stop)    stop ;;
+  restart) stop; sleep 2; start ;;
+  status)  "$PREFIX/bin/smbstatus" 2>/dev/null || echo "smbstatus unavailable" ;;
+  *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac

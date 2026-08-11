@@ -1,0 +1,44 @@
+#======================= Global Settings =====================================
+# Lean SMB2/SMB3 file server for the Infrant SPARC ReadyNAS.
+# Tuned small: this is a ~280 MHz CPU with limited RAM. Keep it minimal.
+[global]
+   workgroup = WORKGROUP
+   server string = ReadyNAS Samba4
+   netbios name = READYNAS
+
+   # --- Protocol: force modern SMB, refuse the deprecated SMB1/CIFS ---------
+   server min protocol = SMB2
+   server max protocol = SMB3
+   client min protocol = SMB2
+   # Signing "auto" = allow but don't force (forced signing is CPU-heavy here).
+   server signing = auto
+   # SMB3 encryption works but is SLOW on this CPU — leave off unless needed:
+   # smb encrypt = desired
+
+   # --- Keep it light --------------------------------------------------------
+   load printers = no
+   printing = bsd
+   printcap name = /dev/null
+   disable spoolss = yes
+   log level = 1
+   max log size = 200
+   log file = /opt/samba/var/log.%m
+   deadtime = 15
+   socket options = TCP_NODELAY
+
+   # --- Simplest auth to start: standalone server, local users --------------
+   # Create users on the device with: /opt/samba/sbin/smbpasswd -a <user>
+   security = user
+   passdb backend = tdbsam
+   map to guest = never
+
+#======================= Shares ==============================================
+# Point 'path' at a directory on your data volume. Adjust owner/permissions.
+[media]
+   comment = ReadyNAS data share
+   path = /c/media
+   browseable = yes
+   read only = no
+   valid users = @users
+   create mask = 0664
+   directory mask = 0775

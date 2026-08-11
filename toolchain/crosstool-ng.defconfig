@@ -1,0 +1,75 @@
+# ============================================================================
+# crosstool-NG defconfig for the Infrant SPARC ReadyNAS.
+#   sparc-unknown-linux-gnu, 32-bit BIG-ENDIAN, v7 codegen,
+#   glibc 2.19, custom Linux 2.6.17 headers, binutils 2.32, gcc 7.5.x.
+#
+# IMPORTANT: versions are selected via crosstool-NG *choice* symbols
+# (CT_GLIBC_V_2_19=y), NOT via CT_*_VERSION strings (those are derived and are
+# ignored in a defconfig). Symbol names below were verified against the
+# crosstool-NG 1.25.0 package set.
+#
+# WHY these exact versions (do not "modernize"):
+#   * glibc 2.19 is the NEWEST glibc that still runs on a 2.6.17 kernel —
+#     glibc 2.20 raised the minimum to 2.6.32, and 2.26+ to 3.2. A newer glibc
+#     would build but abort at runtime with "FATAL: kernel too old".
+#   * gcc 7.5 / binutils 2.32 pair cleanly with glibc 2.19 and still build on a
+#     modern host compiler.
+#
+# 01-build-toolchain.sh substitutes __KVER__ / __KTARBALL__ (from $KERNEL_HEADERS)
+# and appends CT_PREFIX_DIR / CT_LOCAL_TARBALLS_DIR before building.
+# ============================================================================
+CT_EXPERIMENTAL=y
+
+# ---- Architecture: 32-bit big-endian SPARC, default codegen = v7 -----------
+CT_ARCH_SPARC=y
+CT_ARCH_32=y
+CT_ARCH_BE=y
+CT_ARCH_CPU="v7"
+CT_TARGET_VENDOR="unknown"
+
+# ---- Binutils 2.38 ---------------------------------------------------------
+# Use a MODERN binutils: it's only a build-time tool (never ships to the
+# device), and old binutils (<=2.33) fails to LINK on a gcc-10+ host because
+# gcc 10 defaults to -fno-common ("multiple definition" errors). 2.38 builds
+# cleanly on the host and emits perfectly good SPARC objects.
+CT_BINUTILS_V_2_38=y
+
+# ---- Target OS: Linux (NOT bare-metal!) ------------------------------------
+# Without this, ct-ng defaults CT_KERNEL to bare-metal and builds a
+# sparc-unknown-ELF toolchain with no glibc — useless for the device.
+CT_KERNEL_LINUX=y
+
+# ---- Linux headers: packaged 2.6.32 (NOT custom 2.6.17) --------------------
+# Kernel 2.6.17 has NO `make headers_install` target (it was added in 2.6.18),
+# so ct-ng cannot install its headers. Use the oldest packaged series, 2.6.32
+# — its headers are backward-compatible, and we cap glibc's MINIMUM kernel at
+# 2.6.17 below so the result still runs on the device.
+CT_LINUX_V_2_6_32=y
+
+# ---- glibc 2.19, minimum runtime kernel pinned to 2.6.17 -------------------
+# --enable-kernel=2.6.17: glibc adds runtime fallbacks for anything newer, so
+# it runs on the 2.6.17 device even though built against 2.6.32 headers.
+CT_GLIBC_V_2_19=y
+CT_GLIBC_KERNEL_VERSION_CHOSEN=y
+CT_GLIBC_MIN_KERNEL_VERSION="2.6.17"
+# --enable-static-nss: compile nss_files + nss_dns directly into static binaries.
+# Without it, getpwnam/getgrnam in a static binary try to dlopen libnss_files.so
+# at runtime — impossible with no dynamic loader — so Samba can't resolve any
+# Unix user ("Unable to locate guest account [nobody]"). This bakes files/dns
+# NSS in, so lookups read /etc/passwd directly. (Local users only, which is what
+# a standalone Samba file server needs.)
+CT_GLIBC_EXTRA_CONFIG_ARRAY="--enable-static-nss"
+
+# ---- gcc 7.5.x, C ONLY -----------------------------------------------------
+# No C++: the whole target stack (GnuTLS, nettle, gmp, zlib, Samba) is C. This
+# skips building target libstdc++/cc1plus — a big cut in build time and, more
+# importantly, in peak disk (the final-gcc link is what overruns small disks).
+CT_GCC_V_7=y
+
+# ---- Trim ------------------------------------------------------------------
+CT_TOOLCHAIN_ENABLE_NLS=n
+CT_DEBUG_GDB=n
+# Build the host toolchain binaries without debug info. cc1/cc1plus with -g are
+# enormous and their final link is what overruns a small Docker disk; -g0 cuts
+# the peak build footprint dramatically with no effect on the target output.
+CT_EXTRA_CFLAGS_FOR_HOST="-g0"

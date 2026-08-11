@@ -1,0 +1,28 @@
+# ── Build scratch / generated trees ─────────────────────────────────────────
+# These are produced by the build (normally on the Docker volume, but early
+# runs before run.sh could drop them here). Root-anchored so they never match
+# the real source dirs (toolchain/ deps/ samba/ package/ install/).
+/build/
+/x-tools/
+/stage/
+/dist/
+/downloads/
+/dl/
+/src/
+/.stamp/
+/ctng-*/
+
+# Partial downloads
+*.part
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+
+# ── OS / editor cruft ────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+*~
+
+# ── Kept on purpose (do NOT ignore) ──────────────────────────────────────────
+# samba/cross-answers.txt is a reproducibility artifact and IS tracked.
+!samba/cross-answers.txt
