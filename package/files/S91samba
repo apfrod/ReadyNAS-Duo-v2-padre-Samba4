@@ -33,6 +33,21 @@ samba_pids() {
 }
 
 start() {
+  # Our binaries live on the data volume (/opt/samba -> /c/...). On RAIDiator the
+  # LVM data volume is assembled + mounted LATE, by the S99 master boot script,
+  # which runs AFTER a normal S## init script. If we're started before the volume
+  # is ready, wait for smbd to appear rather than silently starting nothing. (The
+  # boot symlink is also named to sort after S99rc3 — see install-on-device.sh.)
+  n=0
+  while [ ! -x "$SMBD" ] && [ "$n" -lt 90 ]; do
+    [ "$n" = 0 ] && echo "Waiting for $SMBD (data volume mount)…"
+    sleep 1; n=$((n + 1))
+  done
+  if [ ! -x "$SMBD" ]; then
+    echo "ERROR: $SMBD not found after ${n}s — is the data volume mounted?" >&2
+    return 1
+  fi
+
   echo "Starting Samba4 (SMB2/SMB3) …"
   # -D = daemonize. Point Samba at our private config + state dirs.
   if [ -n "$SSD" ]; then
