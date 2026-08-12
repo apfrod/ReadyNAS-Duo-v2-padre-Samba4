@@ -66,12 +66,12 @@ export_cross_env() {
   # linked into one large binary; non-PIC uses absolute addressing (no GOT).
   export CFLAGS="$TARGET_CFLAGS -fno-pic -fno-PIE -I$DEP_PREFIX/include"
   export CXXFLAGS="$CFLAGS"
-  # rpath points at the on-device self-contained lib dir. (No --dynamic-linker:
-  # it breaks qemu cross-execute and the device uses a launcher wrapper anyway.)
+  # The final binaries link FULLY STATIC (see README "Why static"), so there is
+  # no --dynamic-linker and the rpath below is inert in the static executables —
+  # it's harmless and kept only for any incidental non-static link during deps.
   # -latomic: 32-bit SPARC v7 has no inline atomic ops, so gcc emits calls to
-  # __atomic_*_4 helpers that live in libatomic; without it, gnutls.so ends up
-  # with undefined __atomic_fetch_add_4/sub_4 and Samba's --no-undefined link
-  # fails. libatomic.so.1 is bundled at package time.
+  # __atomic_*_4 helpers that live in libatomic; without it the link fails with
+  # undefined __atomic_fetch_add_4/sub_4. The static libatomic.a is pulled in.
   export LDFLAGS="-L$DEP_PREFIX/lib -Wl,-rpath,$PREFIX/lib -latomic"
   # pkg-config must only see the sysroot, never the host.
   export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
