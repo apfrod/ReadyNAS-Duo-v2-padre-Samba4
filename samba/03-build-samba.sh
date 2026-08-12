@@ -44,7 +44,14 @@ export LDFLAGS="-L$DEP_PREFIX/lib -latomic"
 # nsswitch.conf uses 'compat', which a static binary cannot load.
 mkdir -p "$BUILD"
 "$TARGET-gcc" $TARGET_CFLAGS -fno-pic -c "$HERE/nssfix.c" -o "$BUILD/nssfix.o"
-export LINKFLAGS="-static $BUILD/nssfix.o"
+# Emulate the *at() syscall family (openat/fstatat/unlinkat/...). The Infrant
+# 2.6.17 kernel does NOT implement them (confirmed on hardware: SYS_openat ->
+# ENOSYS), but Samba 4.13's whole VFS is built on them, so every file/dir open
+# fails -> the client sees NT_STATUS_NOT_SUPPORTED. atshim.c provides strong
+# definitions that override glibc's and fall back to the classic non-*at calls
+# via /proc/self/fd/<dirfd>. Proven on-device with attest.c before wiring here.
+"$TARGET-gcc" $TARGET_CFLAGS -fno-pic -c "$HERE/atshim.c" -o "$BUILD/atshim.o"
+export LINKFLAGS="-static $BUILD/nssfix.o $BUILD/atshim.o"
 export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
 export PKG_CONFIG_LIBDIR="$DEP_PREFIX/lib/pkgconfig:$SYSROOT/usr/lib/pkgconfig"
 export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
@@ -159,11 +166,13 @@ log "patching waf SHLIB_MARKER -> -Wl,-Bstatic (force fully-static link)"
 for f in bin/c4che/*.py; do
   [ -f "$f" ] || continue
   sed -i "s/SHLIB_MARKER = .*/SHLIB_MARKER = ['-Wl,-Bstatic']/" "$f"
-  # Ensure nssfix.o is in the cached LINKFLAGS. waf captures LINKFLAGS at
-  # configure time, so on an incremental relink (no reconfigure) the env change
-  # above wouldn't take — inject it directly. Idempotent.
+  # Ensure nssfix.o + atshim.o are in the cached LINKFLAGS. waf captures
+  # LINKFLAGS at configure time, so on an incremental relink (no reconfigure)
+  # the env change above wouldn't take — inject them directly. Idempotent.
   grep -q "nssfix.o" "$f" || \
     sed -i "s|LINKFLAGS = \['-static'|LINKFLAGS = ['-static', '$BUILD/nssfix.o'|" "$f"
+  grep -q "atshim.o" "$f" || \
+    sed -i "s|LINKFLAGS = \['-static'|LINKFLAGS = ['-static', '$BUILD/atshim.o'|" "$f"
 done
 # 2. Samba builds its heimdal code generators (asn1_compile/compile_et) as target
 #    binaries and runs them during the build. If any come out dynamic they need
