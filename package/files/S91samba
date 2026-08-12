@@ -10,28 +10,81 @@ PIDDIR="$PREFIX/var/run"
 
 mkdir -p "$PIDDIR" "$PREFIX/var" "$PREFIX/private"
 
+# The stock RAIDiator /etc/init.d/samba drives the daemons with Debian's
+# start-stop-daemon, which is the right tool here: it matches processes by name
+# via /proc (no controlling tty needed) and won't start a duplicate. Prefer it;
+# fall back to a hand-rolled /proc scan only if it's somehow absent.
+SSD=""
+for c in /sbin/start-stop-daemon /usr/sbin/start-stop-daemon; do
+  [ -x "$c" ] && { SSD="$c"; break; }
+done
+[ -z "$SSD" ] && SSD="$(command -v start-stop-daemon 2>/dev/null || true)"
+
+# Fallback PID lister: scan /proc directly. Immune to the traps that broke
+# ps-based matching here — no controlling tty under ssh, and busybox/procps flag
+# differences. /proc/<pid>/cmdline exists on 2.6.17 (unlike comm, added 2.6.33).
+samba_pids() {
+  for d in /proc/[0-9]*; do
+    c=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null) || continue
+    case "$c" in
+      */smbd\ *|*/smbd|*/nmbd\ *|*/nmbd) echo "${d#/proc/}" ;;
+    esac
+  done
+}
+
 start() {
   echo "Starting Samba4 (SMB2/SMB3) …"
   # -D = daemonize. Point Samba at our private config + state dirs.
-  "$NMBD" -D -s "$CONF"
-  "$SMBD" -D -s "$CONF"
-  echo "  smbd/nmbd started. Check: $PREFIX/bin/smbstatus"
+  if [ -n "$SSD" ]; then
+    "$SSD" --start --exec "$NMBD" -- -D -s "$CONF"
+    "$SSD" --start --exec "$SMBD" -- -D -s "$CONF"
+  else
+    "$NMBD" -D -s "$CONF"
+    "$SMBD" -D -s "$CONF"
+  fi
+  echo "  smbd/nmbd started. Check: '$0 status'"
+}
+
+status() {
+  # smbstatus isn't built into this minimal package, so report from /proc + netstat.
+  procs=$(samba_pids)
+  if [ -n "$procs" ]; then
+    echo "Samba4 running (pids):" $procs
+  else
+    echo "Samba4 not running."
+  fi
+  echo "Listening (want 139 + 445):"
+  netstat -ltn 2>/dev/null | grep -E ':(139|445)\b' || echo "  (139/445 not listening)"
 }
 
 stop() {
   echo "Stopping Samba4 …"
-  for p in smbd nmbd; do
-    # only kill OUR processes (matched by the /opt/samba path)
-    for pid in $(ps | grep "$PREFIX/sbin/$p" | grep -v grep | awk '{print $1}'); do
-      kill "$pid" 2>/dev/null
+  # Kill every smbd/nmbd (master + the children smbd forks per connection).
+  # Match by NAME, not the $PREFIX exec path: our tree is reached through the
+  # /opt/samba symlink, so /proc/<pid>/exe resolves to the real data-volume path
+  # and --exec wouldn't match. --name (comm from /proc/<pid>/stat) always does.
+  if [ -n "$SSD" ]; then
+    for p in smbd nmbd; do "$SSD" --stop --quiet --oknodo --name "$p"; done   # TERM
+    sleep 2
+    for p in smbd nmbd; do "$SSD" --stop --quiet --oknodo --signal KILL --name "$p"; done  # KILL stragglers
+  else
+    i=0
+    while [ $i -lt 4 ]; do
+      pids=$(samba_pids)
+      [ -z "$pids" ] && break
+      sig=TERM; [ $i -ge 2 ] && sig=KILL
+      for pid in $pids; do kill -$sig "$pid" 2>/dev/null; done
+      sleep 1
+      i=$((i + 1))
     done
-  done
+  fi
+  rm -f "$PIDDIR"/*.pid 2>/dev/null   # clear stale pidfiles so start won't refuse
 }
 
 case "$1" in
   start)   start ;;
   stop)    stop ;;
   restart) stop; sleep 2; start ;;
-  status)  "$PREFIX/bin/smbstatus" 2>/dev/null || echo "smbstatus unavailable" ;;
+  status)  status ;;
   *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
 esac

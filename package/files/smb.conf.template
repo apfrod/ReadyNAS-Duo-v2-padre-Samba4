@@ -6,6 +6,18 @@
    server string = ReadyNAS Samba4
    netbios name = READYNAS
 
+   # --- Charsets: MUST stay on Samba's built-in converters ------------------
+   # This smbd is fully static, and glibc's iconv dlopen()s its charset modules
+   # (/usr/lib/gconv/*.so) at runtime. In a static binary that either fails or,
+   # with the device's stock glibc-2.3.2 modules, loads an ABI-incompatible .so
+   # and CRASHES the connection (SIGILL) — e.g. when reading a file's stored DOS
+   # attributes. Samba has its OWN built-in converters for UTF-8, UTF-16LE,
+   # UCS-2LE, ASCII and ISO-8859-1, so pin every charset to one of those and
+   # smbd never calls glibc iconv. In particular `dos charset` must be a
+   # single-byte built-in: ISO-8859-1 (NOT CP850/CP437 — those need a module).
+   unix charset = UTF-8
+   dos charset = ISO-8859-1
+
    # --- Protocol: force modern SMB, refuse the deprecated SMB1/CIFS ---------
    server min protocol = SMB2
    server max protocol = SMB3
